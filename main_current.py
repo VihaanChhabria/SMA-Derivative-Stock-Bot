@@ -71,71 +71,81 @@ sma20 = closes.rolling(window=20).mean()
 sma9 = closes.rolling(window=9).mean()
 sma200 = closes.rolling(window=200).mean()
 
-d1_20 = sma20 - sma20.shift(1)
-d1_9 = sma9 - sma9.shift(1)
+# A. PERCENTAGE SLOPES (Fixes Price-Scale Bias)
+# Measures % change in SMA per bar rather than dollar change
+d1_20_pct = (sma20 - sma20.shift(1)) / sma20.shift(1)
+d1_9_pct = (sma9 - sma9.shift(1)) / sma9.shift(1)
 
-# Crossover tracking: d1_20 crossed above 0 within last 3 bars
-cross20 = (d1_20 > 0) & (d1_20.shift(1) <= 0)
+# B. VOLATILITY / ATR NORMALIZATION (Fixes Single-Day Spike Bias)
+# Calculate 20-day percentage volatility (std dev of daily returns)
+daily_returns = closes.pct_change()
+volatility_20d = daily_returns.rolling(window=20).std()
+
+# Risk-Adjusted Momentum Score (Slope normalized by volatility)
+risk_adjusted_score = (d1_20_pct + d1_9_pct) / volatility_20d
+
+# C. OVERBOUGHT / STRETCH FILTER (Prevents Buying Parabolic Tops)
+# Disqualify stocks stretched > 4% above their 20 SMA
+stretch_factor = closes / sma20
+not_overbought = stretch_factor <= 1.04
+
+# Crossover tracking: d1_20_pct crossed above 0 within last ROLLING_WINDOW_CROSS20 bars
+cross20 = (d1_20_pct > 0) & (d1_20_pct.shift(1) <= 0)
 recent_cross20 = cross20.rolling(window=ROLLING_WINDOW_CROSS20).max() > 0
 
 # Scan filters
-short_term_up = d1_9 > 0
+short_term_up = d1_9_pct > 0
 macro_uptrend = closes > sma200
 liquidity = (volumes.shift(1) > MIN_VOLUME) & (closes > MIN_PRICE)
 
-# Final Scan Condition
-scan_signals = liquidity & macro_uptrend & short_term_up & recent_cross20
+# Final Scan Condition (Includes Overbought Guardrail)
+scan_signals = liquidity & macro_uptrend & short_term_up & recent_cross20 & not_overbought
 
 # 50-day High Resistance Target
 resistance_50d = highs.shift(1).rolling(window=50).max()
 
 # ==========================================
-# 3. LATEST DAY SCAN & RANKING (ALL CANDIDATES)
+# 3. LATEST DAY SCAN, CSV EXPORT & RANKING
 # ==========================================
 latest_date = closes.dropna(how="all").index[-1]
 print(f"Latest Market Data Date: {latest_date.strftime('%Y-%m-%d')}\n")
 
-# Get slice for latest date
-today_signals = scan_signals.loc[latest_date]
-valid_candidates = today_signals[today_signals == True].index.tolist()
+# Get all universe tickers for the latest date
+all_tickers = closes.columns.tolist()
 
-if not valid_candidates:
-    print("No tickers met the scan criteria for the most recent date.")
+# 1. Build DataFrame containing ALL stocks (Passed + Failed)
+full_df = pd.DataFrame(
+    {
+        "Ticker": all_tickers,
+        "Close_Price": closes.loc[latest_date, all_tickers].values,
+        "Risk_Adj_Score": risk_adjusted_score.loc[latest_date, all_tickers].values,
+        "SMA20_Slope_%": (d1_20_pct.loc[latest_date, all_tickers] * 100).values,
+        "SMA9_Slope_%": (d1_9_pct.loc[latest_date, all_tickers] * 100).values,
+        "Stretch_vs_SMA20_%": ((stretch_factor.loc[latest_date, all_tickers] - 1) * 100).values,
+        "50d_Resistance": resistance_50d.loc[latest_date, all_tickers].values,
+        "Passed_Scan": scan_signals.loc[latest_date, all_tickers].values,
+    }
+)
+
+# Sort the complete dataset by Risk_Adj_Score descending
+full_df = full_df.sort_values(by="Risk_Adj_Score", ascending=False).reset_index(drop=True)
+
+# 2. Export ALL data (including non-passing stocks) to CSV
+export_filename = f"all_stocks_scan_{latest_date.strftime('%Y%m%d')}.csv"
+full_df.to_csv(export_filename, index=False)
+print(f"Full dataset ({len(full_df)} stocks) exported to '{export_filename}'.\n")
+
+# 3. Filter and display ONLY the stocks that PASSED all scan criteria
+passed_df = full_df[full_df["Passed_Scan"] == True].copy().reset_index(drop=True)
+
+if passed_df.empty:
+    print("No tickers met all scan criteria for today.")
 else:
-    # Compute ranking metrics for candidates
-    today_d1_20 = d1_20.loc[latest_date, valid_candidates]
-    today_d1_9 = d1_9.loc[latest_date, valid_candidates]
-    today_closes = closes.loc[latest_date, valid_candidates]
-    today_res = resistance_50d.loc[latest_date, valid_candidates]
+    passed_df.index += 1
+    passed_df.index.name = "Rank"
 
-    combined_slope = (today_d1_20 + today_d1_9).dropna()
-
-    # Create detailed DataFrame for ALL valid candidates
-    ranking_df = pd.DataFrame(
-        {
-            "Ticker": combined_slope.index,
-            "Close_Price": today_closes[combined_slope.index].values,
-            "Slope_Score": combined_slope.values,
-            "SMA20_Slope": today_d1_20[combined_slope.index].values,
-            "SMA9_Slope": today_d1_9[combined_slope.index].values,
-            "50d_Resistance": today_res[combined_slope.index].values,
-        }
-    )
-
-    # Sort descending by momentum slope score across ALL candidates
-    ranking_df = ranking_df.sort_values(
-        by="Slope_Score", ascending=False
-    ).reset_index(drop=True)
-    ranking_df.index += 1  # 1-based rank indexing
-    ranking_df.index.name = "Rank"
-
-    # Display ALL ranked candidates
-    print("=" * 65)
-    print(f"ALL RANKED CANDIDATES FOR TODAY ({latest_date.strftime('%Y-%m-%d')}) - Total: {len(ranking_df)}")
-    print("=" * 65)
-    print(ranking_df.to_string())
-
-    # Export ALL ranked positions to CSV
-    export_all_filename = "all_ranked_positions_today.csv"
-    ranking_df.to_csv(export_all_filename)
-    print(f"\nAll ranked positions saved to '{export_all_filename}'.")
+    print("=" * 80)
+    print(f"PASSED CANDIDATES FOR TODAY ({latest_date.strftime('%Y-%m-%d')}) - Total: {len(passed_df)}")
+    print("=" * 80)
+    # Exclude the 'Passed_Scan' column from terminal display since all are True
+    print(passed_df.drop(columns=["Passed_Scan"]).to_string())
