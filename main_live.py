@@ -75,7 +75,9 @@ TICKERS = [
     "ALL", "MET", "TRV", "PRU", "DLR", "VMC", "MLM", "KMB", "GIS",
     "AEP", "SRE", "WEC", "ES", "PEG", "ED", "FAST", "CTAS", "GWW", "CPRT",
     "ODFL", "ROK", "AME", "VRSK", "IDXX", "IQV", "DXCM", "MTD", "RMD",
-    "ZTS", "MOH", "HLT", "YUM", "DRI", "ROST", "DAL", "UAL", "AAL"
+    "ZTS", "MOH", "HLT", "YUM", "DRI", "ROST", "DAL", "UAL", "AAL",
+
+    "MCHP", "CCL"
 ]
 
 # Deduplicate tickers
@@ -193,7 +195,7 @@ full_df = full_df.sort_values(
 ).reset_index(drop=True)
 
 # 3. Export full dataset to CSV
-export_filename = f"all_stocks_scan_{latest_date.strftime('%Y%m%d')}.csv"
+export_filename = f"/all_stocks_scan_live/all_stocks_scan_{latest_date.strftime('%Y%m%d')}.csv"
 full_df.to_csv(export_filename, index=False)
 print(f"Full dataset ({len(full_df)} stocks) exported to '{export_filename}'.\n")
 
