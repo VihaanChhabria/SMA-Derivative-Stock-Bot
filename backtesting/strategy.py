@@ -1,7 +1,15 @@
 import pandas as pd
 import numpy as np
-from backtesting.lib import crossover
-import yfinance as yf
+from config.settings import (
+    SMA_LONG_WINDOW,
+    SMA_MACRO_WINDOW,
+    SMA_SHORT_WINDOW,
+    STRETCH_LIMIT,
+    VOLATILITY_WINDOW,
+)
+from src.indicators import sma_slope_percent
+
+
 def sma_derivative_signal(
     closes,
     volumes,
@@ -12,21 +20,19 @@ def sma_derivative_signal(
     closes = pd.Series(closes)
     volumes = pd.Series(volumes, index=closes.index)
 
-    sma20 = closes.rolling(window=20).mean()
-    sma9 = closes.rolling(window=9).mean()
-    sma3 = closes.rolling(window=3).mean()
-    sma200 = closes.rolling(window=200).mean()
+    sma20 = closes.rolling(window=SMA_LONG_WINDOW).mean()
+    sma9 = closes.rolling(window=SMA_SHORT_WINDOW).mean()
+    sma200 = closes.rolling(window=SMA_MACRO_WINDOW).mean()
 
-    d1_20_pct = (sma20 - sma20.shift(1)) / sma20.shift(1)
-    d1_9_pct = (sma9 - sma9.shift(1)) / sma9.shift(1)
-    d1_3_pct = (sma3 - sma3.shift(1)) / sma3.shift(1)
+    d1_20_pct = sma_slope_percent(closes, SMA_LONG_WINDOW)
+    d1_9_pct = sma_slope_percent(closes, SMA_SHORT_WINDOW)
 
     daily_returns = closes.pct_change()
-    volatility_20d = daily_returns.rolling(window=20).std()
+    volatility_20d = daily_returns.rolling(window=VOLATILITY_WINDOW).std()
     # risk_adjusted_score = (d1_20_pct + d1_9_pct) / volatility_20d
 
     stretch_factor = closes / sma20
-    not_overbought = stretch_factor <= 1.10
+    not_overbought = stretch_factor <= STRETCH_LIMIT
 
     cross20 = (d1_20_pct > 0) & (d1_20_pct.shift(1) <= 0)
     # recent_cross20 = cross20.rolling(window=rolling_window_cross20).max() > 0
