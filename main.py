@@ -3,7 +3,6 @@
 import argparse
 import runpy
 
-
 STRATEGIES = {
     "sma_slope": "scanners.sma_slope",
     "stochastic": "scanners.stochastic",
