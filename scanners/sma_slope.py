@@ -17,7 +17,7 @@ from config.settings import (
 from config.universes import SMA_SLOPE_TICKERS as TICKERS
 from src.data_loader import download_ohlcv
 from src.indicators import sma_slope_percent
-from src.paths import output_path
+from src.scan_results import export_and_print_scan_results
 
 
 def main() -> None:
@@ -132,28 +132,14 @@ def main() -> None:
         drop=True
     )
 
-    # 3. Export full dataset to CSV
-    export_filename = output_path(
-        "scans", f"all_stocks_scan_{latest_date.strftime('%Y%m%d')}.csv"
+    export_and_print_scan_results(
+        full_df,
+        latest_date=latest_date,
+        filename=f"all_stocks_scan_{latest_date.strftime('%Y%m%d')}.csv",
+        heading="PASSED CANDIDATES FOR TODAY ({date}) - Total: {count}",
+        no_results_message="No tickers met all scan criteria for today.",
+        hidden_columns=("Passed_Scan", "Rejection_Reason"),
     )
-    full_df.to_csv(export_filename, index=False)
-    print(f"Full dataset ({len(full_df)} stocks) exported to '{export_filename}'.\n")
-
-    # 4. Filter and display ONLY stocks that PASSED in the console terminal
-    passed_df = full_df[full_df["Passed_Scan"] == True].copy().reset_index(drop=True)
-
-    if passed_df.empty:
-        print("No tickers met all scan criteria for today.")
-    else:
-        passed_df.index += 1
-        passed_df.index.name = "Rank"
-
-        print("=" * 90)
-        print(
-            f"PASSED CANDIDATES FOR TODAY ({latest_date.strftime('%Y-%m-%d')}) - Total: {len(passed_df)}"
-        )
-        print("=" * 90)
-        print(passed_df.drop(columns=["Passed_Scan", "Rejection_Reason"]).to_string())
 
 
 if __name__ == "__main__":

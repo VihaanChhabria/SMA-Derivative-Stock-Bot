@@ -1,18 +1,23 @@
 from datetime import datetime, timedelta
+
+import numpy as np
 import pandas as pd
 import talib
-import numpy as np
+
 from config.settings import (
     HISTORICAL_LOOKBACK_DAYS,
     STOCHASTIC_FASTK_PERIOD,
-    STOCHASTIC_LOOKBACK_DAYS as LOOKBACK_DAYS,
     STOCHASTIC_MA_TYPE,
     STOCHASTIC_SLOWD_PERIOD,
     STOCHASTIC_SLOWK_PERIOD,
 )
+from config.settings import (
+    STOCHASTIC_LOOKBACK_DAYS as LOOKBACK_DAYS,
+)
 from config.universes import STOCHASTIC_TICKERS as TICKERS
 from src.data_loader import download_ohlcv
-from src.paths import output_path
+from src.scan_results import export_and_print_scan_results
+
 
 def main() -> None:
 
@@ -50,14 +55,14 @@ def main() -> None:
         l = lows[ticker].dropna().values
         c = closes[ticker].dropna().values
 
-        # Calculate Stochastic using your exact parameters (10, 10, 3, EMA=1)
+        # Calculate Stochastic
         k, d = talib.STOCH(
             h, l, c,
-            fastk_period=STOCH_FASTK_PERIOD,
-            slowk_period=STOCH_SLOWK_PERIOD,
-            slowk_matype=STOCH_MA_TYPE,
-            slowd_period=STOCH_SLOWD_PERIOD,
-            slowd_matype=STOCH_MA_TYPE,
+            fastk_period=STOCHASTIC_FASTK_PERIOD,
+            slowk_period=STOCHASTIC_SLOWK_PERIOD,
+            slowk_matype=STOCHASTIC_MA_TYPE,
+            slowd_period=STOCHASTIC_SLOWD_PERIOD,
+            slowd_matype=STOCHASTIC_MA_TYPE,
         )
         slowk_df[ticker] = pd.Series(k, index=closes[ticker].dropna().index)
         slowd_df[ticker] = pd.Series(d, index=closes[ticker].dropna().index)
@@ -106,33 +111,21 @@ def main() -> None:
         }
     )
 
-    # 2. Export full dataset to CSV
-    export_filename = output_path(
-        "scans", f"all_stocks_scan_stochastic_{latest_date.strftime('%Y%m%d')}.csv"
+    export_and_print_scan_results(
+        full_df,
+        latest_date=latest_date,
+        filename=f"all_stocks_scan_stochastic_{latest_date.strftime('%Y%m%d')}.csv",
+        heading=(
+            "PASSED CANDIDATES: %K CROSS OVER %D IN PAST "
+            f"{LOOKBACK_DAYS} DAYS ({{date}}) - Total: {{count}}"
+        ),
+        no_results_message=(
+            f"No tickers had a %K over %D crossover in the past "
+            f"{LOOKBACK_DAYS} days."
+        ),
+        sort_by="Days_Since_Cross",
+        hidden_columns=("Passed_Scan",),
     )
-    full_df.to_csv(export_filename, index=False)
-    print(f"Full dataset ({len(full_df)} stocks) exported to '{export_filename}'.\n")
-
-    # 3. Filter for PASSED stocks only & SORT BY Days_Since_Cross (Ascending: 0, 1, 2, 3)
-    passed_df = (
-        full_df[full_df["Passed_Scan"] == True]
-        .sort_values(by="Days_Since_Cross", ascending=True)
-        .copy()
-        .reset_index(drop=True)
-    )
-
-    if passed_df.empty:
-        print(f"No tickers had a %K over %D crossover in the past {LOOKBACK_DAYS} days.")
-    else:
-        passed_df.index += 1
-        passed_df.index.name = "Rank"
-
-        print("=" * 90)
-        print(
-            f"PASSED CANDIDATES: %K CROSS OVER %D IN PAST {LOOKBACK_DAYS} DAYS ({latest_date.strftime('%Y-%m-%d')}) - Total: {len(passed_df)}"
-        )
-        print("=" * 90)
-        print(passed_df.drop(columns=["Passed_Scan"]).to_string())
 
 if __name__ == "__main__":
     main()
