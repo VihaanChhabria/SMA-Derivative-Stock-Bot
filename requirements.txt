@@ -3,3 +3,4 @@ numpy
 pandas
 TA-Lib
 yfinance
+inquirer
