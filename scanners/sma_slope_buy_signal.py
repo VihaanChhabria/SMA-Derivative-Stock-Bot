@@ -23,6 +23,7 @@ import warnings
 warnings.filterwarnings("ignore", message=".*inplace keyword in DataFrame.*")
 
 scan_signals = None
+scan_scores = None
 ohlcv_data = globals().get("ohlcv_data")
 
 
@@ -85,8 +86,10 @@ def main() -> None:
         liquidity & macro_uptrend & short_term_up & recent_cross20 & not_overbought
     )
 
-    global scan_signals
+    global scan_signals, scan_scores
     scan_signals = scan_signals_local
+    # Used by the backtest engine to rank candidates when slots are limited
+    scan_scores = risk_adjusted_score
 
     # print(f"Scan signals: {scan_signals}")
 

@@ -22,6 +22,9 @@ STOCHASTIC_MA_TYPE = 1
 # the risk); main.py asks for the actual value and highlights this one
 RISK_REWARD_STOP_LOSS_PCT = 0.05
 
+# Backtest engine buys fractional shares; set False to buy whole shares only
+ALLOW_FRACTIONAL_SHARES = True
+
 BACKTEST_MONTHS = 4
 BACKTEST_CROSS_WINDOW = 3
 INITIAL_CAPITAL = 1_000.0

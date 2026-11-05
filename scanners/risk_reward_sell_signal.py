@@ -51,6 +51,30 @@ def generate_sell_signals(
     return sell_signals
 
 
+def make_exit_rule(reward_ratio: float, stop_loss_pct: float, **_):
+    """Backtest exit rule: sell at the stop or target set from the real entry.
+
+    Fills at the level itself, or at the open if the price gapped through it.
+    If a bar touches both levels, the stop is assumed to fill first.
+    """
+    if reward_ratio <= 0:
+        raise ValueError("reward_ratio must be positive")
+    if not 0 < stop_loss_pct < 1:
+        raise ValueError("stop_loss_pct must be between 0 and 1")
+
+    def rule(position, date, bar):
+        risk = position.entry_price * stop_loss_pct
+        stop = position.entry_price - risk
+        target = position.entry_price + risk * reward_ratio
+        if bar.low <= stop:
+            return (min(stop, bar.open) if pd.notna(bar.open) else stop), "Stop loss"
+        if bar.high >= target:
+            return (max(target, bar.open) if pd.notna(bar.open) else target), "Take profit"
+        return None
+
+    return rule
+
+
 def main(reward_ratio: float, stop_loss_pct: float) -> pd.DataFrame:
     if not isinstance(buy_signals, pd.DataFrame):
         raise TypeError("buy_signals must be a pandas DataFrame")

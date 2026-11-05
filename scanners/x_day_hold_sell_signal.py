@@ -16,6 +16,21 @@ def generate_sell_signals(
     return buy_signals.shift(periods=days_to_hold, fill_value=False)
 
 
+def make_exit_rule(days_to_hold: int, **_):
+    """Backtest exit rule: sell at the close once held for days_to_hold days."""
+    if isinstance(days_to_hold, bool) or not isinstance(days_to_hold, int):
+        raise TypeError("days_to_hold must be a non-negative integer")
+    if days_to_hold < 0:
+        raise ValueError("days_to_hold must be a non-negative integer")
+
+    def rule(position, date, bar):
+        if position.bars_held >= days_to_hold:
+            return bar.close, f"Held {days_to_hold} days"
+        return None
+
+    return rule
+
+
 def main(days_to_hold: int) -> pd.DataFrame:
     if not isinstance(buy_signals, pd.DataFrame):
         raise TypeError("buy_signals must be a pandas DataFrame")

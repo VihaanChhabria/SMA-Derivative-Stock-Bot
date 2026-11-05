@@ -8,7 +8,14 @@ import pandas as pd
 import inquirer
 import runpy
 
-from config.settings import HISTORICAL_LOOKBACK_DAYS, RISK_REWARD_STOP_LOSS_PCT
+from backtesting.engine import run_backtest
+from backtesting.report import print_summary, save_backtest_run
+from config.settings import (
+    HISTORICAL_LOOKBACK_DAYS,
+    INITIAL_CAPITAL,
+    RISK_REWARD_STOP_LOSS_PCT,
+    TOP_N_POSITIONS,
+)
 from src.data_loader import load_or_download_ohlcv
 from src.data_store import list_downloads, to_date
 
@@ -153,11 +160,12 @@ def require_all_signals(frames: list[pd.DataFrame]) -> pd.DataFrame:
 
 def select_backtest_data(
     buy_strategies: list[str],
-) -> tuple[pd.DataFrame, date | None, date | None]:
+) -> tuple[pd.DataFrame, date | None, date | None, str]:
     """Ask for a saved download or a date range and return the OHLCV data.
 
     Also returns the chosen [start, end) range so signals can be trimmed to
-    it, or (None, None) when a saved download is used as-is.
+    it, or (None, None) when a saved download is used as-is, plus a short
+    description of the data source for the run's settings file.
     """
     downloads = list_downloads()
     choices = [(d.label, d) for d in downloads] + [(NEW_RANGE_CHOICE, None)]
@@ -173,7 +181,7 @@ def select_backtest_data(
 
     if source is not None:
         print(f"Loading saved download '{source.data_path.name}'...")
-        return source.load(), None, None
+        return source.load(), None, None, f"saved download {source.data_path.name}"
 
     answers = inquirer.prompt(
         [
@@ -202,7 +210,51 @@ def select_backtest_data(
     # Fetch extra history before the start so long indicators (SMA200) are warm
     download_start = start - timedelta(days=HISTORICAL_LOOKBACK_DAYS)
     print(f"Loading data for {len(tickers)} tickers from {download_start} to {end}...")
-    return load_or_download_ohlcv(tickers, download_start, end), start, end
+    data = load_or_download_ohlcv(tickers, download_start, end)
+    return data, start, end, f"date range {start} to {end} (exclusive)"
+
+
+def _validate_positive_number(_answers, value: str) -> bool:
+    try:
+        if float(value) <= 0:
+            raise ValueError
+    except ValueError:
+        raise inquirer.errors.ValidationError("", reason="Enter a positive number")
+    return True
+
+
+def _validate_positive_int(_answers, value: str) -> bool:
+    if not value.strip().isdigit() or int(value) <= 0:
+        raise inquirer.errors.ValidationError("", reason="Enter a whole number above 0")
+    return True
+
+
+def select_portfolio_settings() -> tuple[float, int]:
+    """Ask for starting capital and the maximum number of open positions."""
+    answers = inquirer.prompt(
+        [
+            inquirer.Text(
+                "capital",
+                message="Starting capital ($)",
+                default=f"{INITIAL_CAPITAL:g}",
+                validate=_validate_positive_number,
+            ),
+            inquirer.Text(
+                "max_positions",
+                message="Maximum open positions",
+                default=str(TOP_N_POSITIONS),
+                validate=_validate_positive_int,
+            ),
+        ]
+    )
+    return float(answers["capital"]), int(answers["max_positions"])
+
+
+def average_scores(frames: list[pd.DataFrame]) -> pd.DataFrame | None:
+    """Average the ranking scores exposed by buy strategies, if any."""
+    if not frames:
+        return None
+    return pd.concat(frames).groupby(level=0).mean()
 
 
 def main() -> None:
@@ -226,15 +278,18 @@ def main() -> None:
     answers = inquirer.prompt(questions)
 
     buy_signals_frames = []
-    sell_signals_frames = []
+    buy_scores_frames = []
 
     if answers["live_or_backtest"] == "backtest":
-        days_to_hold = 5  # Default value
+        days_to_hold = 5 if "x_day_hold" in answers["sell_strategy"] else None
         reward_ratio = stop_loss_pct = None
         if "risk_reward" in answers["sell_strategy"]:
             stop_loss_pct = select_stop_loss_pct()
             reward_ratio = select_reward_ratio()
-        ohlcv_data, start, end = select_backtest_data(answers["buy_strategy"])
+        initial_capital, max_positions = select_portfolio_settings()
+        ohlcv_data, start, end, data_source = select_backtest_data(
+            answers["buy_strategy"]
+        )
         for strategy in answers["buy_strategy"]:
             strat_globals = runpy.run_module(
                 BUY_STRATEGIES[strategy],
@@ -242,6 +297,8 @@ def main() -> None:
                 init_globals={"ohlcv_data": ohlcv_data},
             )
             buy_signals_frames.append(strat_globals.get("scan_signals"))
+            if strat_globals.get("scan_scores") is not None:
+                buy_scores_frames.append(strat_globals["scan_scores"])
 
         # overlay buy signals
         combined_buy_signals = require_all_signals(buy_signals_frames)
@@ -252,27 +309,44 @@ def main() -> None:
                 & (combined_buy_signals.index < pd.Timestamp(end))
             ]
 
-        for strategy in answers["sell_strategy"]:
-            strat_globals = runpy.run_module(
-                SELL_STRATEGIES[strategy],
-                run_name="__main__",
-                init_globals={
-                    "buy_signals": combined_buy_signals,
-                    "days_to_hold": days_to_hold,
-                    "ohlcv_data": ohlcv_data,
-                    "reward_ratio": reward_ratio,
-                    "stop_loss_pct": stop_loss_pct,
-                },
+        if combined_buy_signals.empty:
+            print("No buy signal data to backtest.")
+            return
+
+        # Sell strategies become exit rules applied to the engine's real
+        # positions; the first rule to fire closes the position
+        sell_params = {
+            "days_to_hold": days_to_hold,
+            "reward_ratio": reward_ratio,
+            "stop_loss_pct": stop_loss_pct,
+        }
+        exit_rules = [
+            importlib.import_module(SELL_STRATEGIES[strategy]).make_exit_rule(
+                **sell_params
             )
-            sell_signals_frames.append(strat_globals.get("sell_signals"))
+            for strategy in answers["sell_strategy"]
+        ]
 
-        # overlay sell signals
-        combined_sell_signals = require_all_signals(sell_signals_frames)
-
-        print("Combined buy signals:")
-        print(combined_buy_signals)
-        print("Combined sell signals:")
-        print(combined_sell_signals)
+        result = run_backtest(
+            ohlcv_data,
+            combined_buy_signals,
+            average_scores(buy_scores_frames),
+            exit_rules,
+            initial_capital,
+            max_positions,
+        )
+        run_dir = save_backtest_run(
+            result,
+            {
+                "buy_strategies": answers["buy_strategy"],
+                "sell_strategies": answers["sell_strategy"],
+                "data_source": data_source,
+                "initial_capital": initial_capital,
+                "max_positions": max_positions,
+                **{k: v for k, v in sell_params.items() if v is not None},
+            },
+        )
+        print_summary(result, run_dir)
 
 
 if __name__ == "__main__":

@@ -1,23 +1,59 @@
+import json
+from pathlib import Path
+
+import inquirer
 import pandas as pd
 import matplotlib.pyplot as plt
 from src.data_loader import download_ohlcv
-from src.paths import output_path
+from src.paths import PROJECT_ROOT
+
+BACKTESTS_DIR = PROJECT_ROOT / "outputs" / "backtests"
+
+
+def select_run_dir() -> Path | None:
+    """Ask which saved backtest run to analyze, newest first."""
+    run_dirs = sorted(
+        (d for d in BACKTESTS_DIR.iterdir() if (d / "daily_equity.csv").exists()),
+        key=lambda d: (d / "daily_equity.csv").stat().st_mtime,
+        reverse=True,
+    )
+    if not run_dirs:
+        print(f"No backtest runs found in '{BACKTESTS_DIR}'. Run a backtest from main.py first.")
+        return None
+    return inquirer.prompt(
+        [
+            inquirer.List(
+                "run_dir",
+                message="Select a backtest run to compare against the S&P 500",
+                choices=[(d.name, d) for d in run_dirs],
+            )
+        ]
+    )["run_dir"]
+
 
 def main() -> None:
 
     # ==========================================
     # 1. READ BACKTEST CSV DATA
     # ==========================================
-    csv_filename = output_path("backtests", "daily_portfolio_value.csv")
+    run_dir = select_run_dir()
+    if run_dir is None:
+        return
 
-    # Load the daily portfolio value CSV
-    df_strategy = pd.read_csv(csv_filename)
+    settings_file = run_dir / "settings.json"
+    settings = json.loads(settings_file.read_text()) if settings_file.exists() else {}
+    strategy_name = " + ".join(
+        settings.get("buy_strategies", []) + settings.get("sell_strategies", [])
+    ) or run_dir.name
+
+    # Load the run's daily equity CSV
+    df_strategy = pd.read_csv(run_dir / "daily_equity.csv")
     df_strategy['Date'] = pd.to_datetime(df_strategy['Date'])
     df_strategy.sort_values('Date', inplace=True)
 
     start_date = df_strategy['Date'].min()
     end_date = df_strategy['Date'].max()
-    initial_capital = df_strategy['Net_Account_Value'].iloc[0]
+    initial_capital = settings.get("initial_capital", df_strategy['Total_Equity'].iloc[0])
 
     print(f"Loaded backtest data from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 
@@ -53,7 +89,7 @@ def main() -> None:
     # ==========================================
     # 3. PERFORMANCE & DRAWDOWN CALCULATIONS
     # ==========================================
-    strat_final = df_merged['Net_Account_Value'].iloc[-1]
+    strat_final = df_merged['Total_Equity'].iloc[-1]
     spy_final = df_merged['SP500_Value'].iloc[-1]
 
     strat_return = ((strat_final - initial_capital) / initial_capital) * 100
@@ -64,7 +100,7 @@ def main() -> None:
         drawdown = (series - peak) / peak
         return drawdown.min() * 100
 
-    strat_mdd = calc_max_drawdown(df_merged['Net_Account_Value'])
+    strat_mdd = calc_max_drawdown(df_merged['Total_Equity'])
     spy_mdd = calc_max_drawdown(df_merged['SP500_Value'])
 
     print("\n" + "="*55)
@@ -82,8 +118,8 @@ def main() -> None:
 
     plt.plot(
         df_merged['Date'],
-        df_merged['Net_Account_Value'],
-        label=f'9/20 SMA Slope Strategy ({strat_return:+.1f}%)',
+        df_merged['Total_Equity'],
+        label=f'{strategy_name} ({strat_return:+.1f}%)',
         color='#1f77b4',
         linewidth=2.5
     )
@@ -97,7 +133,7 @@ def main() -> None:
         linewidth=2.0
     )
 
-    plt.title('9/20 SMA Slope Strategy vs. S&P 500 Benchmark', fontsize=14, fontweight='bold', pad=15)
+    plt.title(f'{strategy_name} vs. S&P 500 Benchmark', fontsize=14, fontweight='bold', pad=15)
     plt.xlabel('Date', fontsize=11)
     plt.ylabel('Portfolio Net Value ($)', fontsize=11)
     plt.grid(True, linestyle=':', alpha=0.6)
@@ -108,7 +144,9 @@ def main() -> None:
     plt.tight_layout()
 
     # Save chart as high-res PNG image
-    plt.savefig(output_path("backtests", "strategy_vs_sp500.png"), dpi=300)
+    chart_file = run_dir / "strategy_vs_sp500.png"
+    plt.savefig(chart_file, dpi=300)
+    print(f"Chart saved to '{chart_file}'.")
 
     # Display chart window
     plt.show()
