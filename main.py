@@ -39,6 +39,20 @@ def _validate_end_date(answers, value: str) -> bool:
     return True
 
 
+def require_all_signals(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Combine signal frames so a ticker signals only when every frame does.
+
+    Only dates and tickers present in every frame are kept.
+    """
+    if not frames:
+        return pd.DataFrame()
+    combined = frames[0]
+    for frame in frames[1:]:
+        combined, frame = combined.align(frame, join="inner")
+        combined = combined & frame
+    return combined
+
+
 def select_backtest_data(
     buy_strategies: list[str],
 ) -> tuple[pd.DataFrame, date | None, date | None]:
@@ -128,11 +142,7 @@ def main() -> None:
             buy_signals_frames.append(strat_globals.get("scan_signals"))
 
         # overlay buy signals
-        combined_buy_signals = (
-            pd.concat(buy_signals_frames, axis=1)
-            if buy_signals_frames
-            else pd.DataFrame()
-        )
+        combined_buy_signals = require_all_signals(buy_signals_frames)
         if start is not None and not combined_buy_signals.empty:
             # Drop the indicator warm-up period before the chosen start date
             combined_buy_signals = combined_buy_signals[
@@ -152,11 +162,7 @@ def main() -> None:
             sell_signals_frames.append(strat_globals.get("sell_signals"))
 
         # overlay sell signals
-        combined_sell_signals = (
-            pd.concat(sell_signals_frames, axis=1)
-            if sell_signals_frames
-            else pd.DataFrame()
-        )
+        combined_sell_signals = require_all_signals(sell_signals_frames)
 
         print("Combined buy signals:")
         print(combined_buy_signals)

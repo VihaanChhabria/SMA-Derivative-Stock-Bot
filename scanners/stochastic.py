@@ -18,6 +18,7 @@ from config.universes import STOCHASTIC_TICKERS as TICKERS
 from src.data_loader import download_ohlcv
 from src.scan_results import export_and_print_scan_results
 
+scan_signals = None
 ohlcv_data = globals().get("ohlcv_data")
 
 
@@ -75,6 +76,10 @@ def main() -> None:
 
     # Boolean Crossover Signal: %K crossed above %D on the current bar
     k_cross_d_raw = (slowk_df > slowd_df) & (slowk_df.shift(1) <= slowd_df.shift(1))
+
+    # Daily scan condition: %K crossed above %D within the last LOOKBACK_DAYS bars
+    global scan_signals
+    scan_signals = k_cross_d_raw.astype(int).rolling(window=LOOKBACK_DAYS).max() > 0
 
     # ==========================================
     # 3. LATEST DAY SCAN & RANKING BY CROSS RECENCY
