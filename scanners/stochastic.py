@@ -18,6 +18,8 @@ from config.universes import STOCHASTIC_TICKERS as TICKERS
 from src.data_loader import download_ohlcv
 from src.scan_results import export_and_print_scan_results
 
+ohlcv_data = globals().get("ohlcv_data")
+
 
 def main() -> None:
 
@@ -28,14 +30,18 @@ def main() -> None:
     end_date = datetime.now()
     start_date = end_date - timedelta(days=HISTORICAL_LOOKBACK_DAYS)
 
-    print(
-        f"Fetching market data for {len(TICKERS)} tickers to evaluate latest day..."
-    )
-    data = download_ohlcv(
-        TICKERS,
-        start=start_date.strftime("%Y-%m-%d"),
-        end=end_date.strftime("%Y-%m-%d"),
-    )
+    if ohlcv_data is not None:
+        # Data provided by main.py (saved download or chosen date range)
+        data = ohlcv_data
+    else:
+        print(
+            f"Fetching market data for {len(TICKERS)} tickers to evaluate latest day..."
+        )
+        data = download_ohlcv(
+            TICKERS,
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+        )
 
     closes = data["Close"]
     highs = data["High"]

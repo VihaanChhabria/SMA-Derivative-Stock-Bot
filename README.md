@@ -14,6 +14,19 @@ python main.py --strategy analyze
 Generated scanner CSVs are saved under `outputs/scans/`. Backtest CSVs and
 analysis charts are saved under `outputs/backtests/`.
 
+## Saved market data
+
+Every market data download is saved under `data/downloads/` (a `.pkl` file
+plus a `.json` metadata file; the folder is git-ignored). When you run a
+backtest from `main.py`, you are asked to either:
+
+- pick one of the saved downloads (listed by date range, ticker count, and
+  download time), or
+- enter a specific start/end date range. Extra history before the start date
+  is loaded so long indicators like the 200-day SMA are ready, and signals are
+  trimmed back to your range. A saved download covering the range and tickers
+  is reused if one exists; otherwise the data is downloaded and saved.
+
 ## Project layout
 
 - `config/`: strategy parameters and ticker universes.

@@ -32,6 +32,7 @@ def main() -> None:
         start=start_date.strftime('%Y-%m-%d'),
         end=(end_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d'),
         progress=False,
+        save=False,
     )
 
     # Extract close prices (handles yfinance multi-index formats)
