@@ -18,6 +18,10 @@ STOCHASTIC_SLOWK_PERIOD = 3
 STOCHASTIC_SLOWD_PERIOD = 10
 STOCHASTIC_MA_TYPE = 1
 
+# Risk:reward sell strategy — default stop-loss distance below entry (defines
+# the risk); main.py asks for the actual value and highlights this one
+RISK_REWARD_STOP_LOSS_PCT = 0.05
+
 BACKTEST_MONTHS = 4
 BACKTEST_CROSS_WINDOW = 3
 INITIAL_CAPITAL = 1_000.0

@@ -8,7 +8,7 @@ import pandas as pd
 import inquirer
 import runpy
 
-from config.settings import HISTORICAL_LOOKBACK_DAYS
+from config.settings import HISTORICAL_LOOKBACK_DAYS, RISK_REWARD_STOP_LOSS_PCT
 from src.data_loader import load_or_download_ohlcv
 from src.data_store import list_downloads, to_date
 
@@ -19,9 +19,107 @@ BUY_STRATEGIES = {
 
 SELL_STRATEGIES = {
     "x_day_hold": "scanners.x_day_hold_sell_signal",
+    "risk_reward": "scanners.risk_reward_sell_signal",
 }
 
 NEW_RANGE_CHOICE = "Pick a specific date range"
+
+RISK_REWARD_PRESETS = {"1:1": 1.0, "1:1.5": 1.5, "1:2": 2.0}
+STOP_LOSS_PRESETS = {"2%": 0.02, "3%": 0.03, "5%": 0.05, "8%": 0.08}
+CUSTOM_CHOICE = "Custom"
+
+
+def _parse_reward_ratio(value: str) -> float:
+    """Parse '1:2.5' or '2.5' into the reward multiple 2.5."""
+    value = value.strip()
+    if ":" in value:
+        risk, reward = (float(part) for part in value.split(":", 1))
+    else:
+        risk, reward = 1.0, float(value)
+    if risk <= 0 or reward <= 0:
+        raise ValueError("ratio parts must be positive")
+    return reward / risk
+
+
+def _validate_reward_ratio(_answers, value: str) -> bool:
+    try:
+        _parse_reward_ratio(value)
+    except ValueError:
+        raise inquirer.errors.ValidationError(
+            "", reason="Enter a positive ratio like 1:2.5 or 2.5"
+        )
+    return True
+
+
+def select_reward_ratio() -> float:
+    """Ask for a preset or custom risk:reward ratio and return the reward multiple."""
+    choice = inquirer.prompt(
+        [
+            inquirer.List(
+                "ratio",
+                message="Select a risk to reward ratio",
+                choices=[*RISK_REWARD_PRESETS, CUSTOM_CHOICE],
+            )
+        ]
+    )["ratio"]
+    if choice != CUSTOM_CHOICE:
+        return RISK_REWARD_PRESETS[choice]
+
+    custom = inquirer.prompt(
+        [
+            inquirer.Text(
+                "ratio",
+                message="Custom risk:reward ratio (e.g. 1:3)",
+                validate=_validate_reward_ratio,
+            )
+        ]
+    )["ratio"]
+    return _parse_reward_ratio(custom)
+
+
+def _parse_stop_loss_pct(value: str) -> float:
+    """Parse '4' or '4%' into the fraction 0.04."""
+    pct = float(value.strip().rstrip("%"))
+    if not 0 < pct < 100:
+        raise ValueError("stop-loss must be between 0 and 100 percent")
+    return pct / 100
+
+
+def _validate_stop_loss_pct(_answers, value: str) -> bool:
+    try:
+        _parse_stop_loss_pct(value)
+    except ValueError:
+        raise inquirer.errors.ValidationError(
+            "", reason="Enter a percent between 0 and 100, like 4 or 4%"
+        )
+    return True
+
+
+def select_stop_loss_pct() -> float:
+    """Ask for a preset or custom stop-loss % and return it as a fraction."""
+    choice = inquirer.prompt(
+        [
+            inquirer.List(
+                "stop_loss",
+                message="Select a stop-loss distance below entry (defines the risk)",
+                choices=[*STOP_LOSS_PRESETS, CUSTOM_CHOICE],
+                default=f"{RISK_REWARD_STOP_LOSS_PCT:.0%}",
+            )
+        ]
+    )["stop_loss"]
+    if choice != CUSTOM_CHOICE:
+        return STOP_LOSS_PRESETS[choice]
+
+    custom = inquirer.prompt(
+        [
+            inquirer.Text(
+                "stop_loss",
+                message="Custom stop-loss % below entry (e.g. 4 or 4%)",
+                validate=_validate_stop_loss_pct,
+            )
+        ]
+    )["stop_loss"]
+    return _parse_stop_loss_pct(custom)
 
 
 def _validate_date(_answers, value: str) -> bool:
@@ -132,6 +230,10 @@ def main() -> None:
 
     if answers["live_or_backtest"] == "backtest":
         days_to_hold = 5  # Default value
+        reward_ratio = stop_loss_pct = None
+        if "risk_reward" in answers["sell_strategy"]:
+            stop_loss_pct = select_stop_loss_pct()
+            reward_ratio = select_reward_ratio()
         ohlcv_data, start, end = select_backtest_data(answers["buy_strategy"])
         for strategy in answers["buy_strategy"]:
             strat_globals = runpy.run_module(
@@ -157,6 +259,9 @@ def main() -> None:
                 init_globals={
                     "buy_signals": combined_buy_signals,
                     "days_to_hold": days_to_hold,
+                    "ohlcv_data": ohlcv_data,
+                    "reward_ratio": reward_ratio,
+                    "stop_loss_pct": stop_loss_pct,
                 },
             )
             sell_signals_frames.append(strat_globals.get("sell_signals"))
