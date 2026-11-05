@@ -1,0 +1,21 @@
+{
+  "Start_Date": "2009-01-16",
+  "End_Date": "2014-12-31",
+  "Starting_Capital": 1000.0,
+  "Final_Equity": 2184.272271225988,
+  "Total_Return_Pct": 118.4272271225988,
+  "Annualized_Return_Pct": 14.019763885046999,
+  "Max_Drawdown_Pct": -21.06828130325318,
+  "Closed_Trades": 5560,
+  "Open_Positions": 18,
+  "Win_Rate_Pct": 54.802158273381295,
+  "Avg_Win_Pct": 2.117436646438679,
+  "Avg_Loss_Pct": -2.130787211865115,
+  "Profit_Factor": 1.2287081280721763,
+  "Realized_PnL": 1198.2709386632234,
+  "Avg_Days_Held": 3.551978417266187,
+  "Exit_Reasons": {
+    "Take profit": 3047,
+    "Stop loss": 2513
+  }
+}

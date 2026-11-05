@@ -1,0 +1,13 @@
+{
+  "buy_strategies": [
+    "sma_slope"
+  ],
+  "sell_strategies": [
+    "risk_reward"
+  ],
+  "data_source": "saved download ohlcv_20090116_20150101_195tickers_20261105_153612.pkl",
+  "initial_capital": 1000.0,
+  "max_positions": 20,
+  "reward_ratio": 1.0,
+  "stop_loss_pct": 0.02
+}
